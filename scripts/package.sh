@@ -19,9 +19,9 @@ cp config.sample.json webapp/
 
 # if $version looks like semver with leading v, strip it before writing to file
 if [[ ${version} =~ ^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+(-.+)?$ ]]; then
-    echo ${version:1} > webapp/version
+    echo ${version:1} > webapp/version.txt
 else
-    echo ${version} > webapp/version
+    echo ${version} > webapp/version.txt
 fi
 
 mkdir -p dist
