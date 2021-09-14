@@ -4,6 +4,8 @@ set -e
 
 if [ -n "$DIST_VERSION" ]; then
     version=$DIST_VERSION
+elif [ -n "$npm_package_version" ]; then
+    version=$npm_package_version //Fix Version
 else
     version=`git describe --dirty --tags || echo unknown`
 fi
@@ -14,6 +16,13 @@ yarn build
 # include the sample config in the tarball. Arguably this should be done by
 # `yarn build`, but it's just too painful.
 cp config.sample.json webapp/
+
+# if $version looks like semver with leading v, strip it before writing to file
+if [[ ${version} =~ ^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+(-.+)?$ ]]; then
+    echo ${version:1} > webapp/version.html
+else
+    echo ${version} > webapp/version.html
+fi
 
 mkdir -p dist
 cp -r webapp element-$version
