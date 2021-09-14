@@ -5,7 +5,7 @@ set -e
 if [ -n "$DIST_VERSION" ]; then
     version=$DIST_VERSION
 elif [ -n "$npm_package_version" ]; then
-    version=$npm_package_version //Fix Version
+    version=$npm_package_version
 else
     version=`git describe --dirty --tags || echo unknown`
 fi
