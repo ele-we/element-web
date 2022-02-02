@@ -200,6 +200,9 @@ function genLangList(langFileMap) {
             languages[normalizedLanguage] = {'fileName': langFileMap[lang.value], 'label': lang.label};
         }
     });
+    #Mod
+    languages['zh-cn'] = {'fileName': langFileMap['zh_Hans'], 'label': '简体中文/zh-CN'}; //Fix zh-CN
+    #Mod-End
     fs.writeFile('webapp/i18n/languages.json', JSON.stringify(languages, null, 4), function(err) {
         if (err) {
             console.error("Copy Error occured: " + err);
