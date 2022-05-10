@@ -18,9 +18,7 @@ limitations under the License.
 
 import PlatformPeg from 'matrix-react-sdk/src/PlatformPeg';
 import WebPlatform from '../../src/vector/platform/WebPlatform';
-import * as sdk from "matrix-react-sdk";
-import * as jssdk from "matrix-js-sdk";
-import "../skin-sdk";
+import * as jssdk from "matrix-js-sdk/src/matrix";
 import "../jest-mocks";
 import React from "react";
 import ReactDOM from "react-dom";
@@ -28,15 +26,12 @@ import ReactTestUtils from "react-dom/test-utils";
 import {makeType} from "matrix-react-sdk/src/utils/TypeUtils";
 import {ValidatedServerConfig} from "matrix-react-sdk/src/utils/AutoDiscoveryUtils";
 import {sleep} from "../test-utils";
-import * as test_utils from "../test-utils";
 import MockHttpBackend from "matrix-mock-request";
 import "fake-indexeddb/auto";
-
-
-const MatrixChat = sdk.getComponent('structures.MatrixChat');
-const RoomDirectory = sdk.getComponent('structures.RoomDirectory');
-const RoomPreviewBar = sdk.getComponent('rooms.RoomPreviewBar');
-const RoomView = sdk.getComponent('structures.RoomView');
+import { RoomView as RoomViewClass } from 'matrix-react-sdk/src/components/structures/RoomView';
+import MatrixChat from "matrix-react-sdk/src/components/structures/MatrixChat";
+import RoomDirectory from "matrix-react-sdk/src/components/structures/RoomDirectory";
+import RoomPreviewBar from "matrix-react-sdk/src/components/views/rooms/RoomPreviewBar";
 
 const HS_URL='http://localhost';
 const IS_URL='http://localhost';
@@ -50,7 +45,6 @@ describe('joining a room', function() {
         let matrixChat;
 
         beforeEach(function() {
-            test_utils.beforeEach(this);
             httpBackend = new MockHttpBackend();
             jssdk.request(httpBackend.requestFn);
             parentDiv = document.createElement('div');
@@ -148,7 +142,7 @@ describe('joining a room', function() {
 
                 // enter an alias in the input, and simulate enter
                 const input = ReactTestUtils.findRenderedDOMComponentWithTag(
-                    roomDir, 'input');
+                    roomDir, 'input') as HTMLInputElement;
                 input.value = ROOM_ALIAS;
                 ReactTestUtils.Simulate.change(input);
                 ReactTestUtils.Simulate.keyUp(input, {key: 'Enter'});
@@ -165,7 +159,7 @@ describe('joining a room', function() {
 
                 // we should now have a roomview
                 roomView = ReactTestUtils.findRenderedComponentWithType(
-                    matrixChat, RoomView);
+                    matrixChat, RoomViewClass);
 
                 // the preview bar may take a tick to be displayed
                 return sleep(1);
@@ -228,7 +222,7 @@ describe('joining a room', function() {
                 return httpBackend.flush();
             }).then(() => {
                 // now the room should have loaded
-                expect(roomView.state.room).toExist();
+                expect(roomView.state.room).toBeTruthy();
             });
         });
     });

@@ -8,17 +8,24 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const HtmlWebpackInjectPreload = require('@principalstudio/html-webpack-inject-preload');
-const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
+const SentryCliPlugin = require("@sentry/webpack-plugin");
 
 dotenv.config();
 let ogImageUrl = process.env.RIOT_OG_IMAGE_URL;
 if (!ogImageUrl) ogImageUrl = 'https://app.element.io/themes/element/img/logos/opengraph.png';
+
+if (!process.env.VERSION) {
+    console.warn("Unset VERSION variable - this may affect build output");
+    process.env.VERSION = "!!UNSET!!";
+}
 
 const cssThemes = {
     // CSS themes
     "theme-legacy-light": "./node_modules/matrix-react-sdk/res/themes/legacy-light/css/legacy-light.scss",
     "theme-legacy-dark": "./node_modules/matrix-react-sdk/res/themes/legacy-dark/css/legacy-dark.scss",
     "theme-light": "./node_modules/matrix-react-sdk/res/themes/light/css/light.scss",
+    "theme-light-high-contrast":
+        "./node_modules/matrix-react-sdk/res/themes/light-high-contrast/css/light-high-contrast.scss",
     "theme-dark": "./node_modules/matrix-react-sdk/res/themes/dark/css/dark.scss",
     "theme-light-custom": "./node_modules/matrix-react-sdk/res/themes/light-custom/css/light-custom.scss",
     "theme-dark-custom": "./node_modules/matrix-react-sdk/res/themes/dark-custom/css/dark-custom.scss",
@@ -32,32 +39,65 @@ function getActiveThemes() {
     return themes;
 }
 
-module.exports = (env, argv) => {
-    let nodeEnv = argv.mode;
-    if (process.env.CI_PACKAGE) {
-        // Don't run minification for CI builds (this is only set for runs on develop)
-        // We override this via environment variable to avoid duplicating the scripts
-        // in `package.json` just for a different mode.
-        argv.mode = "development";
+// See docs/customisations.md
+let fileOverrides = {/* {[file: string]: string} */};
+try {
+    fileOverrides = require('./customisations.json');
 
-        // More and more people are using nightly build as their main client
-        // Libraries like React have a development build that is useful
-        // when working on the app but adds significant runtime overhead
-        // We want to use the React production build but not compile the whole
-        // application to productions standards
-        nodeEnv = "production";
-    }
+    // stringify the output so it appears in logs correctly, as large files can sometimes get
+    // represented as `<Object>` which is less than helpful.
+    console.log("Using customisations.json : " + JSON.stringify(fileOverrides, null, 4));
+} catch (e) {
+    // ignore - not important
+}
+
+function parseOverridesToReplacements(overrides) {
+    return Object.entries(overrides).map(([oldPath, newPath]) => {
+        return new webpack.NormalModuleReplacementPlugin(
+            // because the input is effectively defined by the person running the build, we don't
+            // need to do anything special to protect against regex overrunning, etc.
+            new RegExp(oldPath.replace(/\//g, '[\\/\\\\]').replace(/\./g, '\\.')),
+            path.resolve(__dirname, newPath),
+        );
+    });
+}
+
+const moduleReplacementPlugins = [
+    ...parseOverridesToReplacements(require('./components.json')),
+
+    // Allow customisations to override the default components too
+    ...parseOverridesToReplacements(fileOverrides),
+];
+
+module.exports = (env, argv) => {
+    // Establish settings based on the environment and args.
+    //
+    // argv.mode is always set to "production" by yarn build
+    //      (called to build prod, nightly and develop.element.io)
+    // arg.mode is set to "development" by yarn start
+    //      (called by developers, runs the continuous reload script)
+    // process.env.CI_PACKAGE is set when yarn build is called from scripts/ci_package.sh
+    //      (called to build nightly and develop.element.io)
+    const nodeEnv = argv.mode;
     const devMode = nodeEnv !== 'production';
     const useHMR = process.env.CSS_HOT_RELOAD === '1' && devMode;
     const fullPageErrors = process.env.FULL_PAGE_ERRORS === '1' && devMode;
+    const enableMinification = !devMode && !process.env.CI_PACKAGE;
 
     const development = {};
-    if (argv.mode === "production") {
-        development['devtool'] = 'nosources-source-map';
+    if (devMode) {
+        // High quality, embedded source maps for dev builds
+        development['devtool'] = "eval-source-map";
     } else {
-        // This makes the sourcemaps human readable for developers. We use eval-source-map
-        // because the plain source-map devtool ruins the alignment.
-        development['devtool'] = 'eval-source-map';
+        if (process.env.CI_PACKAGE) {
+            // High quality source maps in separate .map files which include the source. This doesn't bulk up the .js
+            // payload file size, which is nice for performance but also necessary to get the bundle to a small enough
+            // size that sentry will accept the upload.
+            development['devtool'] = 'source-map';
+        } else {
+            // High quality source maps in separate .map files which don't include the source
+            development['devtool'] = 'nosources-source-map';
+        }
     }
 
     // Resolve the directories for the react-sdk and js-sdk for later use. We resolve these early so we
@@ -85,13 +125,15 @@ module.exports = (env, argv) => {
         node: {
             // Mock out the NodeFS module: The opus decoder imports this wrongly.
             fs: 'empty',
+            net: 'empty',
+            tls: 'empty',
         },
 
         entry: {
             "bundle": "./src/vector/index.ts",
             "mobileguide": "./src/vector/mobile_guide/index.ts",
             "jitsi": "./src/vector/jitsi/index.ts",
-            "usercontent": "./node_modules/matrix-react-sdk/src/usercontent/index.js",
+            "usercontent": "./node_modules/matrix-react-sdk/src/usercontent/index.ts",
             ...(useHMR ? {} : cssThemes),
         },
 
@@ -119,8 +161,8 @@ module.exports = (env, argv) => {
 
             // Minification is normally enabled by default for webpack in production mode, but
             // we use a CSS optimizer too and need to manage it ourselves.
-            minimize: argv.mode === 'production',
-            minimizer: argv.mode === 'production' ? [new TerserPlugin({}), new OptimizeCSSAssetsPlugin({})] : [],
+            minimize: enableMinification,
+            minimizer: enableMinification ? [new TerserPlugin({}), new OptimizeCSSAssetsPlugin({})] : [],
 
             // Set the value of `process.env.NODE_ENV` for libraries like React
             // See also https://v4.webpack.js.org/configuration/optimization/#optimizationnodeenv
@@ -210,9 +252,6 @@ module.exports = (env, argv) => {
                     loader: 'babel-loader',
                     options: {
                         cacheDirectory: true,
-                        plugins: [
-                            useHMR && require.resolve('react-refresh/babel'),
-                        ].filter(Boolean),
                     },
                 },
                 {
@@ -319,7 +358,6 @@ module.exports = (env, argv) => {
                                     require('postcss-import')(),
                                     require("postcss-mixins")(),
                                     require("postcss-simple-vars")(),
-                                    require("postcss-extend")(),
                                     require("postcss-nested")(),
                                     require("postcss-easings")(),
                                     require("postcss-strip-inline-comments")(),
@@ -424,7 +462,71 @@ module.exports = (env, argv) => {
                     },
                 },
                 {
-                    test: /\.(gif|png|svg|ttf|woff|woff2|xml|ico)$/,
+                    test: /\.svg$/,
+                    issuer: /\.(js|ts|jsx|tsx|html)$/,
+                    use: [
+                        {
+                            loader: '@svgr/webpack',
+                            options: {
+                                namedExport: 'Icon',
+                                svgProps: {
+                                    role: 'presentation',
+                                    'aria-hidden': true,
+                                },
+                                // props set on the svg will override defaults
+                                expandProps: 'end',
+                                svgoConfig: {
+                                    plugins: {
+                                        // generates a viewbox if missing
+                                        removeDimensions: true,
+                                    },
+                                },
+                                esModule: false,
+                                name: '[name].[hash:7].[ext]',
+                                outputPath: getAssetOutputPath,
+                                publicPath: function (url, resourcePath) {
+                                    const outputPath = getAssetOutputPath(url, resourcePath);
+                                    return toPublicPath(outputPath);
+                                },
+                            },
+                        },
+                        {
+                            loader: 'file-loader',
+                            options: {
+                                esModule: false,
+                                name: '[name].[hash:7].[ext]',
+                                outputPath: getAssetOutputPath,
+                                publicPath: function (url, resourcePath) {
+                                    const outputPath = getAssetOutputPath(url, resourcePath);
+                                    return toPublicPath(outputPath);
+                                },
+                            },
+                        },
+                    ]
+                },
+                {
+                    test: /\.svg$/,
+                    issuer: /\.(scss|css)$/,
+                    use: [
+                        {
+                            loader: 'file-loader',
+                            options: {
+                                esModule: false,
+                                name: '[name].[hash:7].[ext]',
+                                outputPath: getAssetOutputPath,
+                                publicPath: function (url, resourcePath) {
+                                    // CSS image usages end up in the `bundles/[hash]` output
+                                    // directory, so we adjust the final path to navigate up
+                                    // twice.
+                                    const outputPath = getAssetOutputPath(url, resourcePath);
+                                    return toPublicPath(path.join("../..", outputPath));
+                                },
+                            },
+                        },
+                    ]
+                },
+                {
+                    test: /\.(gif|png|ttf|woff|woff2|xml|ico)$/,
                     // Use a content-based hash in the name so that we can set a long cache
                     // lifetime for assets while still delivering changes quickly.
                     oneOf: [
@@ -464,6 +566,8 @@ module.exports = (env, argv) => {
         },
 
         plugins: [
+            ...moduleReplacementPlugins,
+
             // This exports our CSS using the splitChunks and loaders above.
             new MiniCssExtractPlugin({
                 filename: useHMR ? "bundles/[name].css" : "bundles/[hash]/[name].css",
@@ -527,8 +631,14 @@ module.exports = (env, argv) => {
             new HtmlWebpackInjectPreload({
                 files: [{ match: /.*Inter.*\.woff2$/ }],
             }),
-            useHMR && new ReactRefreshWebpackPlugin(fullPageErrors ? undefined : { overlay: { entry: false } }),
 
+            // upload to sentry if sentry env is present
+            process.env.SENTRY_DSN &&
+                new SentryCliPlugin({
+                    release: process.env.VERSION,
+                    include: "./webapp/bundles",
+                }),
+            new webpack.EnvironmentPlugin(['VERSION']),
         ].filter(Boolean),
 
         output: {

@@ -41,8 +41,8 @@ released version of Element:
 1. Untar the tarball on your web server
 1. Move (or symlink) the `element-x.x.x` directory to an appropriate name
 1. Configure the correct caching headers in your webserver (see below)
-1. If desired, copy `config.sample.json` to `config.json` and edit it
-   as desired. See the [configuration docs](docs/config.md) for details.
+1. Configure the app by copying `config.sample.json` to `config.json` and
+   modifying it. See the [configuration docs](docs/config.md) for details.
 1. Enter the URL into your browser and log into Element!
 
 Releases are signed using gpg and the OpenPGP standard, and can be checked against the public key located
@@ -122,7 +122,7 @@ Ensure you have the latest LTS version of Node.js installed.
 Using `yarn` instead of `npm` is recommended. Please see the Yarn [install
 guide](https://classic.yarnpkg.com/en/docs/install) if you do not have it already.
 
-1. Install or update `node.js` so that your `node` is at least v14.x.
+1. Install or update `node.js` so that your `node` is at least the current recommended LTS.
 1. Install `yarn` if not present already.
 1. Clone the repo: `git clone https://github.com/vector-im/element-web.git`.
 1. Switch to the element-web directory: `cd element-web`.
@@ -238,6 +238,11 @@ Element requires the following URLs not to be cached, when/if you are serving El
 /index.html
 ```
 
+We also recommend that you force browsers to re-validate any cached copy of Element on page load by configuring your
+webserver to return `Cache-Control: no-cache` for `/`. This ensures the browser will fetch a new version of Element on
+the next page load after it's been deployed. Note that this is already configured for you in the nginx config of our
+Dockerfile.
+
 Development
 ===========
 
@@ -258,9 +263,6 @@ The idea of Element is to be a relatively lightweight "skin" of customisations o
 top of the underlying `matrix-react-sdk`. `matrix-react-sdk` provides both the
 higher and lower level React components useful for building Matrix communication
 apps using React.
-
-After creating a new component you must run `yarn reskindex` to regenerate
-the `component-index.js` for the app (used in future for skinning).
 
 Please note that Element is intended to run correctly without access to the public
 internet.  So please don't depend on resources (JS libs, CSS, images, fonts)
@@ -300,15 +302,22 @@ yarn install
 popd
 ```
 
-Finally, build and start Element itself:
+Clone the repo and switch to the `element-web` directory:
 
 ```bash
 git clone https://github.com/vector-im/element-web.git
 cd element-web
+```
+
+Configure the app by copying `config.sample.json` to `config.json` and
+modifying it. See the [configuration docs](docs/config.md) for details.
+
+Finally, build and start Element itself:
+
+```bash
 yarn link matrix-js-sdk
 yarn link matrix-react-sdk
 yarn install
-yarn reskindex
 yarn start
 ```
 
@@ -324,9 +333,6 @@ Wait a few seconds for the initial build to finish; you should see something lik
    Remember, the command will not terminate since it runs the web server
    and rebuilds source files when they change. This development server also
    disables caching, so do NOT use it in production.
-
-Configure the app by copying `config.sample.json` to `config.json` and
-modifying it. See the [configuration docs](docs/config.md) for details.
 
 Open <http://127.0.0.1:8080/> in your browser to see your newly built Element.
 
@@ -359,9 +365,6 @@ ___
 When you make changes to `matrix-react-sdk` or `matrix-js-sdk` they should be
 automatically picked up by webpack and built.
 
-If you add or remove any components from the Element skin, you will need to rebuild
-the skin's index by running, `yarn reskindex`.
-
 If any of these steps error with, `file table overflow`, you are probably on a mac
 which has a very low limit on max open files. Run `ulimit -Sn 1024` and try again.
 You'll need to do this in each new terminal you open before building Element.
@@ -370,24 +373,15 @@ Running the tests
 -----------------
 
 There are a number of application-level tests in the `tests` directory; these
-are designed to run in a browser instance under the control of
-[karma](https://karma-runner.github.io). To run them:
+are designed to run with Jest and JSDOM. To run them
 
-* Make sure you have Chrome installed (a recent version, like 59)
-* Make sure you have `matrix-js-sdk` and `matrix-react-sdk` installed and
-  built, as above
-* `yarn test`
-
-The above will run the tests under Chrome in a `headless` mode.
-
-You can also tell karma to run the tests in a loop (every time the source
-changes), in an instance of Chrome on your desktop, with `yarn
-test-multi`. This also gives you the option of running the tests in 'debug'
-mode, which is useful for stepping through the tests in the developer tools.
+```
+yarn test
+```
 
 ### End-to-End tests
 
-See [matrix-react-sdk](https://github.com/matrix-org/matrix-react-sdk/#end-to-end-tests) how to run the end-to-end tests.
+See [matrix-react-sdk](https://github.com/matrix-org/matrix-react-sdk/#end-to-end-tests) for how to run the end-to-end tests.
 
 Translations
 ============
@@ -401,6 +395,6 @@ For a developer guide, see the [translating dev doc](docs/translating-dev.md).
 Triaging issues
 ===============
 
-Issues are triaged by community members and the Web App Team, following the [triage process](https://github.com/vector-im/element-web/wiki/Triage-process).
+Issues are triaged by community members and the Web App Team, following the [triage process](https://github.com/vector-im/element-meta/wiki/Triage-process).
 
-We use [issue labels](https://github.com/vector-im/element-web/wiki/Issue-labelling) to sort all incoming issues.
+We use [issue labels](https://github.com/vector-im/element-meta/wiki/Issue-labelling) to sort all incoming issues.
